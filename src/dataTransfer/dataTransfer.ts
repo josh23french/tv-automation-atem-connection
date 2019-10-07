@@ -31,8 +31,6 @@ export default abstract class DataTransfer {
 		return this.completionPromise
 	}
 
-	fail (..._args: any[]): void {} // TODO remove
-
 	abstract start (): Commands.ISerializableCommand[]
 
 	abstract handleCommand (command: Commands.IDeserializedCommand): Commands.ISerializableCommand[]
