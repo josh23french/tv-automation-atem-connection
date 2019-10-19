@@ -75,7 +75,7 @@ export class AtemSocket extends EventEmitter {
 		return ++this._nextCommandTrackingId
 	}
 
-	public async _sendCommand (command: ISerializableCommand, trackingId: number) {
+	public async sendCommand (command: ISerializableCommand, trackingId: number): Promise<void> {
 		if (this._socketProcess) {
 			if (typeof (command as any).serialize !== 'function') {
 				throw new Error('Command is not serializable')
@@ -95,10 +95,10 @@ export class AtemSocket extends EventEmitter {
 		}
 	}
 
-	private async _createSocketProcess (address?: string, port?: number) {
-		const socketProcess = await threadedClass<AtemSocketChild>('./atemSocketChild.js', AtemSocketChild, [{
-			address,
-			port
+	private async _createSocketProcess () {
+		const socketProcess = await threadedClass<AtemSocketChild>('../../dist/lib/atemSocketChild.js', AtemSocketChild, [{
+			address: this._address,
+			port: this._port
 		}], {
 			instanceName: 'atem-connection',
 			freezeLimit: 200,
@@ -124,6 +124,8 @@ export class AtemSocket extends EventEmitter {
 	}
 
 	private _parseCommand (buffer: Buffer) {
+		// TODO - this will get stuck on invalid input (length of 0)
+		// Any will throw errors if less than 8 long
 		const length = buffer.readUInt16BE(0)
 		const name = buffer.toString('ascii', 4, 8)
 
@@ -146,7 +148,7 @@ export class AtemSocket extends EventEmitter {
 			} catch (e) {
 				this.emit('error', e)
 			}
-		}
+		} // TODO - log the unknown command?
 
 		if (buffer.length > length) {
 			this._parseCommand(buffer.slice(length))

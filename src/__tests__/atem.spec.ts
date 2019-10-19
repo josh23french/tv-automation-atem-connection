@@ -102,14 +102,14 @@ describe('Atem', () => {
 			const socket = (conn as any).socket as AtemSocket
 			expect(socket).toBeTruthy()
 
-			let nextTrackId = 123
+			let nextId = 123
 			Object.defineProperty(socket, 'nextCommandTrackingId', {
-				get: jest.fn(() => nextTrackId++),
+				get: jest.fn(() => nextId++),
 				set: jest.fn()
 			})
 			expect(socket.nextCommandTrackingId).toEqual(123)
 
-			socket._sendCommand = jest.fn(() => Promise.resolve(35) as any)
+			socket.sendCommand = jest.fn(() => Promise.resolve(35) as any)
 
 			const sentQueue = (conn as any)._sentQueue as object
 			expect(Object.keys(sentQueue)).toHaveLength(0)
@@ -119,8 +119,8 @@ describe('Atem', () => {
 			await setImmediatePromise()
 			expect(Object.keys(sentQueue)).toHaveLength(1)
 
-			expect(socket._sendCommand).toHaveBeenCalledTimes(1)
-			expect(socket._sendCommand).toHaveBeenCalledWith(cmd, 124)
+			expect(socket.sendCommand).toHaveBeenCalledTimes(1)
+			expect(socket.sendCommand).toHaveBeenCalledWith(cmd, 124)
 
 			// Trigger the ack, and it should switfy resolve
 			socket.emit(IPCMessageType.CommandAcknowledged, { trackingId: 124 })
@@ -141,14 +141,14 @@ describe('Atem', () => {
 			const socket = (conn as any).socket as AtemSocket
 			expect(socket).toBeTruthy()
 
-			let nextTrackId = 123
+			let nextId = 123
 			Object.defineProperty(socket, 'nextCommandTrackingId', {
-				get: jest.fn(() => nextTrackId++),
+				get: jest.fn(() => nextId++),
 				set: jest.fn()
 			})
 			expect(socket.nextCommandTrackingId).toEqual(123)
 
-			socket._sendCommand = jest.fn(() => Promise.resolve(35) as any)
+			socket.sendCommand = jest.fn(() => Promise.resolve(35) as any)
 
 			const sentQueue = (conn as any)._sentQueue as object
 			expect(Object.keys(sentQueue)).toHaveLength(0)
@@ -158,8 +158,8 @@ describe('Atem', () => {
 			await setImmediatePromise()
 			expect(Object.keys(sentQueue)).toHaveLength(1)
 
-			expect(socket._sendCommand).toHaveBeenCalledTimes(1)
-			expect(socket._sendCommand).toHaveBeenCalledWith(cmd, 124)
+			expect(socket.sendCommand).toHaveBeenCalledTimes(1)
+			expect(socket.sendCommand).toHaveBeenCalledWith(cmd, 124)
 
 			// Trigger the timeout, and it should switfy resolve
 			socket.emit(IPCMessageType.CommandTimeout, { trackingId: 124 })
@@ -187,14 +187,14 @@ describe('Atem', () => {
 			const socket = (conn as any).socket as AtemSocket
 			expect(socket).toBeTruthy()
 
-			let nextTrackId = 123
+			let nextId = 123
 			Object.defineProperty(socket, 'nextCommandTrackingId', {
-				get: jest.fn(() => nextTrackId++),
+				get: jest.fn(() => nextId++),
 				set: jest.fn()
 			})
 			expect(socket.nextCommandTrackingId).toEqual(123)
 
-			socket._sendCommand = jest.fn(() => Promise.reject(35) as any)
+			socket.sendCommand = jest.fn(() => Promise.reject(35) as any)
 
 			const sentQueue = (conn as any)._sentQueue as object
 			expect(Object.keys(sentQueue)).toHaveLength(0)
@@ -203,8 +203,8 @@ describe('Atem', () => {
 			const res = conn.sendCommand(cmd)
 
 			// Send command should be called
-			expect(socket._sendCommand).toHaveBeenCalledTimes(1)
-			expect(socket._sendCommand).toHaveBeenCalledWith(cmd, 124)
+			expect(socket.sendCommand).toHaveBeenCalledTimes(1)
+			expect(socket.sendCommand).toHaveBeenCalledWith(cmd, 124)
 
 			expect(Object.keys(sentQueue)).toHaveLength(0)
 
