@@ -25,7 +25,7 @@ import { Util } from './lib/atemUtil'
 import * as Enums from './enums'
 import { AudioChannel, AudioMasterChannel } from './state/audio'
 import exitHook = require('exit-hook')
-import { isArray, isFunction } from 'util'
+import { isFunction } from 'util'
 
 export interface AtemOptions {
 	address?: string,
@@ -456,7 +456,7 @@ export class Atem extends EventEmitter {
 	private _mutateState (command: IDeserializedCommand) {
 		if (isFunction(command.applyToState)) {
 			let changePaths = command.applyToState(this._state)
-			if (!isArray(changePaths)) {
+			if (!Array.isArray(changePaths)) {
 				changePaths = [ changePaths ]
 			}
 			changePaths.forEach(path => this.emit('stateChanged', this._state, path))
