@@ -7,7 +7,7 @@ export default class DataTransferStill extends DataTransferFrame {
 	readonly description: string
 
 	constructor (transferId: number, frameId: number, data: Buffer, name: string, description: string) {
-		super(transferId, 0xffff, frameId, data)
+		super(transferId, 0, frameId, data)
 
 		this.name = name
 		this.description = description

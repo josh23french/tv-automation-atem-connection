@@ -75,9 +75,9 @@ export class Atem extends EventEmitter {
 			address: (options || {}).address,
 			port: (options || {}).port
 		})
-		this.dataTransferManager = new DT.DataTransferManager(
-			(command: ISerializableCommand) => this.sendCommand(command)
-		)
+		this.dataTransferManager = new DT.DataTransferManager()
+		this.socket.on('connect', () => this.dataTransferManager.start((command: ISerializableCommand) => this.sendCommand(command)))
+		this.socket.on('disconnect', () => this.dataTransferManager.stop())
 
 		// When the parent process begins exiting, remove the listeners on our child process.
 		// We do this to avoid throwing an error when the child process exits

@@ -18,25 +18,29 @@ export class DataTransferManager {
 		new DataLock(2, cmd => this.commandQueue.push(cmd))
 	]
 
-	readonly interval: NodeJS.Timer
+	private interval: NodeJS.Timer | undefined
 
 	transferIndex = 0
 
-	constructor (sendCommand: (command: ISerializableCommand) => Promise<ISerializableCommand>) {
-		this.interval = setInterval(() => {
-			if (this.commandQueue.length <= 0) {
-				return
-			}
+	start (sendCommand: (command: ISerializableCommand) => Promise<ISerializableCommand>) {
+		if (!this.interval) {
+			this.interval = setInterval(() => {
+				if (this.commandQueue.length <= 0) {
+					return
+				}
 
-			const commandsToSend = this.commandQueue.splice(0, MAX_PACKETS_TO_SEND_PER_TICK)
-			commandsToSend.forEach(command => {
-				sendCommand(command).catch(() => { /* discard error */ })
-			})
-		}, 0)
+				const commandsToSend = this.commandQueue.splice(0, MAX_PACKETS_TO_SEND_PER_TICK)
+				commandsToSend.forEach(command => {
+					sendCommand(command).catch(() => { /* discard error */ })
+				})
+			}, 0) // TODO - should this be done slower?
+		}
 	}
-
 	stop () {
-		clearInterval(this.interval)
+		if (this.interval) {
+			clearInterval(this.interval)
+			this.interval = undefined
+		}
 	}
 
 	handleCommand (command: Commands.IDeserializedCommand) {
@@ -71,6 +75,8 @@ export class DataTransferManager {
 		}
 		if (!lock) return
 
+		console.log('CMD', command.constructor.name)
+
 		// handle actual command
 		if (command.constructor.name === Commands.LockObtainedCommand.name) {
 			lock.lockObtained()
@@ -92,33 +98,19 @@ export class DataTransferManager {
 
 	uploadStill (index: number, data: Buffer, name: string, description: string) {
 		const transfer = new DataTransferStill(this.transferIndex++, index, data, name, description)
-		// transfer.commandQueue = this.commandQueue
-
-		this.stillsLock.enqueue(transfer)
-
-		return transfer.promise
+		return this.stillsLock.enqueue(transfer)
 	}
 
 	uploadClip (index: number, data: Array<Buffer>, name: string) {
 		const transfer = new DataTransferClip(1 + index, name)
+		transfer.frames = data.map((frame, id) => new DataTransferFrame(this.transferIndex++, 1 + index, id, frame))
 
-		for (const frameId in data) {
-			const frameTransfer = new DataTransferFrame(this.transferIndex++, 1 + index, Number(frameId), data[frameId])
-
-			transfer.frames.push(frameTransfer)
-		}
-
-		this.clipLocks[index].enqueue(transfer)
-
-		return transfer.promise
+		return this.clipLocks[index].enqueue(transfer)
 	}
 
 	uploadAudio (index: number, data: Buffer, name: string) {
 		const transfer = new DataTransferAudio(this.transferIndex++, 1 + index, data, name)
-
-		this.clipLocks[index].enqueue(transfer)
-
-		return transfer.promise
+		return this.clipLocks[index].enqueue(transfer)
 	}
 
 }
