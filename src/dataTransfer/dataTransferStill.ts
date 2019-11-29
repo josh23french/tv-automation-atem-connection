@@ -3,8 +3,8 @@ import { Commands } from '..'
 import DataTransferFrame from './dataTransferFrame'
 
 export default class DataTransferStill extends DataTransferFrame {
-	readonly name: string
-	readonly description: string
+	private readonly name: string
+	private readonly description: string
 
 	constructor (transferId: number, frameId: number, data: Buffer, name: string, description: string) {
 		super(transferId, 0, frameId, data)
