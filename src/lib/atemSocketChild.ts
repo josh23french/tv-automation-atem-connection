@@ -5,23 +5,25 @@ import { Util } from './atemUtil'
 import { ConnectionState, IPCMessageType, PacketFlag } from '../enums'
 import * as NanoTimer from 'nanotimer'
 
+const IN_FLIGHT_TIMEOUT = 30 // ms
+const RECONNECT_INTERVAL = 5000 // ms
+const MAX_PACKET_RETRIES = 5
+const MAX_PACKET_ID = (1 << 15) - 1 // Atem expects 15 not 16 bits before wrapping
+
 export class AtemSocketChild extends EventEmitter {
+	private readonly _debug = false
+
 	private _connectionState = ConnectionState.Closed
-	private _debug = false
 	private _reconnectTimer: NodeJS.Timer | undefined
 	private _retransmitTimer: NodeJS.Timer | undefined
 
 	private _localPacketId = 1
-	private _maxPacketID = (1 << 15) - 1 // Atem expects 15 not 16 bits before wrapping
 	private _sessionId: number = 0
 
 	private _address: string
 	private _port: number = 9910
 	private _socket: Socket
-	private _reconnectInterval = 5000
 
-	private _inFlightTimeout = 30
-	private _maxRetries = 5
 	private _lastReceivedAt: number = Date.now()
 	private _lastReceivedPacketId = 0
 	private _inFlight: Array<{packetId: number, trackingId: number, lastSent: number, packet: Buffer, resent: number}> = []
@@ -37,10 +39,10 @@ export class AtemSocketChild extends EventEmitter {
 		this._socket = this._createSocket()
 	}
 
-	public connect (address?: string, port?: number) {
+	public connect (address?: string, port?: number): void {
 		if (!this._reconnectTimer) {
 			this._reconnectTimer = setInterval(() => {
-				if (this._lastReceivedAt + this._reconnectInterval > Date.now()) return
+				if (this._lastReceivedAt + RECONNECT_INTERVAL > Date.now()) return
 				if (this._connectionState === ConnectionState.Established) {
 					this._connectionState = ConnectionState.Closed
 					this.emit(IPCMessageType.Disconnect, null, null)
@@ -52,7 +54,7 @@ export class AtemSocketChild extends EventEmitter {
 					this._sendPacket(Util.COMMAND_CONNECT_HELLO)
 					this._connectionState = ConnectionState.SynSent
 				}
-			}, this._reconnectInterval)
+			}, RECONNECT_INTERVAL)
 		}
 		// Check for retransmits every 10 milliseconds
 		if (!this._retransmitTimer) {
@@ -70,7 +72,17 @@ export class AtemSocketChild extends EventEmitter {
 		this._connectionState = ConnectionState.SynSent
 	}
 
-	public disconnect () {
+	public disconnect (): Promise<void> {
+		// Stop timers, as they just cause pointless work now.
+		if (this._retransmitTimer) {
+			clearInterval(this._retransmitTimer)
+			this._retransmitTimer = undefined
+		}
+		if (this._reconnectTimer) {
+			clearInterval(this._reconnectTimer)
+			this._reconnectTimer = undefined
+		}
+
 		return new Promise((resolve) => {
 			if (this._connectionState === ConnectionState.Established) {
 				this._socket.close(() => {
@@ -80,16 +92,6 @@ export class AtemSocketChild extends EventEmitter {
 				resolve()
 			}
 		}).then(() => {
-			if (this._retransmitTimer) {
-				clearInterval(this._retransmitTimer)
-				this._retransmitTimer = undefined
-			}
-			if (this._reconnectTimer) {
-				clearInterval(this._reconnectTimer)
-				this._reconnectTimer = undefined
-			}
-			this._reconnectTimer = undefined
-
 			this._connectionState = ConnectionState.Closed
 			this._createSocket()
 			this.emit(IPCMessageType.Disconnect)
@@ -123,7 +125,7 @@ export class AtemSocketChild extends EventEmitter {
 			packet: buffer,
 			resent: 0 })
 		this._localPacketId++
-		if (this._maxPacketID < this._localPacketId) this._localPacketId = 0
+		if (MAX_PACKET_ID < this._localPacketId) this._localPacketId = 0
 	}
 
 	private _createSocket () {
@@ -137,23 +139,30 @@ export class AtemSocketChild extends EventEmitter {
 	private _receivePacket (packet: Buffer, rinfo: any) {
 		if (this._debug) this.log('RECV ', packet)
 		this._lastReceivedAt = Date.now()
-		const length = ((packet[0] & 0x07) << 8) | packet[1]
+		const length = packet.readUInt16BE(0) & 0x07ff
 		if (length !== rinfo.size) return
 
-		const flags = packet[0] >> 3
-		// this._sessionId = [packet[2], packet[3]]
-		this._sessionId = packet[2] << 8 | packet[3]
-		const remotePacketId = packet[10] << 8 | packet[11]
+		const flags = packet.readUInt8(0) >> 3
+		this._sessionId = packet.readUInt16BE(2)
+		const remotePacketId = packet.readUInt16BE(10)
 
 		// Send hello answer packet when receive connect flags
-		if (flags & PacketFlag.Connect && !(flags & PacketFlag.Repeat)) {
+		if ((flags & PacketFlag.Connect) && !(flags & PacketFlag.IsRetransmit)) {
 			this._sendPacket(Util.COMMAND_CONNECT_HELLO_ANSWER)
+		}
+
+		// Device asked for retransmit
+		if (flags & PacketFlag.RetransmitRequest) {
+			const fromPacketId = packet.readUInt16BE(6)
+			this.log('Retransmit request: ', fromPacketId)
+
+			// TODO
 		}
 
 		// Parse commands, Emit 'stateChanged' event after parse
 		if (flags & PacketFlag.AckRequest) {
 			if (this._connectionState === ConnectionState.Established) {
-				if (remotePacketId === (this._lastReceivedPacketId + 1) % this._maxPacketID) {
+				if (remotePacketId === (this._lastReceivedPacketId + 1) % MAX_PACKET_ID) {
 					this._attemptAck(remotePacketId)
 					this._lastReceivedPacketId = remotePacketId
 				} else {
@@ -174,7 +183,7 @@ export class AtemSocketChild extends EventEmitter {
 
 		// Device ack'ed our command
 		if (flags & PacketFlag.AckReply && this._connectionState === ConnectionState.Established) {
-			const ackPacketId = packet[4] << 8 | packet[5]
+			const ackPacketId = packet.readUInt16BE(4)
 			this._lastAcked = ackPacketId
 			for (const i in this._inFlight) {
 				if (ackPacketId >= this._inFlight[i].packetId || this._localPacketId < this._inFlight[i].packetId) {
@@ -230,8 +239,8 @@ export class AtemSocketChild extends EventEmitter {
 				sentPacket.lastSent = Date.now()
 				sentPacket.resent++
 				this._sendPacket(sentPacket.packet)
-			} else if (sentPacket && sentPacket.lastSent + this._inFlightTimeout < Date.now()) {
-				if (sentPacket.resent <= this._maxRetries && sentPacket.packetId < this.nextPacketId) {
+			} else if (sentPacket && sentPacket.lastSent + IN_FLIGHT_TIMEOUT < Date.now()) {
+				if (sentPacket.resent <= MAX_PACKET_RETRIES && sentPacket.packetId < this.nextPacketId) {
 					sentPacket.lastSent = Date.now()
 					sentPacket.resent++
 
