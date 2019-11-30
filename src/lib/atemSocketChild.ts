@@ -107,7 +107,7 @@ export class AtemSocketChild extends EventEmitter {
 		return this._localPacketId
 	}
 
-	public _sendCommand (serializedCommand: Buffer, trackingId: number) {
+	public _sendCommand (serializedCommand: Buffer, trackingId: number): void {
 		const payload = serializedCommand
 		if (this._debug) this.log('PAYLOAD', payload)
 		const buffer = Buffer.alloc(12 + payload.length, 0)
