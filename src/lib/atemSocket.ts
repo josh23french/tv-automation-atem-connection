@@ -98,7 +98,8 @@ export class AtemSocket extends EventEmitter {
 	private async _createSocketProcess () {
 		const socketProcess = await threadedClass<AtemSocketChild>('../../dist/lib/atemSocketChild.js', AtemSocketChild, [{
 			address: this._address,
-			port: this._port
+			port: this._port,
+			debug: this._debug
 		}], {
 			instanceName: 'atem-connection',
 			freezeLimit: 200,
@@ -119,6 +120,8 @@ export class AtemSocket extends EventEmitter {
 				this.log(errorMsg + ':', error && error.message)
 			})
 		})
+
+		await socketProcess.connect(this._address, this._port)
 
 		return socketProcess
 	}

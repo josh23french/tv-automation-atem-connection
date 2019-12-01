@@ -2,7 +2,6 @@ import { createSocket, Socket, RemoteInfo } from 'dgram'
 import { Util } from './atemUtil'
 import { ConnectionState, PacketFlag } from '../enums'
 import * as NanoTimer from 'nanotimer'
-import { DEFAULT_PORT } from '../atem'
 
 const IN_FLIGHT_TIMEOUT = 60 // ms
 const CONNECTION_TIMEOUT = 5000 // ms
@@ -20,7 +19,7 @@ interface InFlightPacket {
 }
 
 export class AtemSocketChild {
-	private readonly _debug = false
+	private readonly _debug: boolean
 
 	private _connectionState = ConnectionState.Closed
 	private _reconnectTimer: NodeJS.Timer | undefined
@@ -29,8 +28,8 @@ export class AtemSocketChild {
 	private _nextSendPacketId = 1
 	private _sessionId: number = 0
 
-	private _address: string = ''
-	private _port: number = DEFAULT_PORT
+	private _address: string
+	private _port: number
 	private _socket: Socket
 
 	private _lastReceivedAt: number = Date.now()
@@ -45,7 +44,11 @@ export class AtemSocketChild {
 	private readonly onCommandReceived: (payload: Buffer, packetId: number) => void
 	private readonly onCommandAcknowledged: (packetId: number, trackingId: number) => void
 
-	constructor (onDisconnect: () => void, onLog: (message: string) => void, onCommandReceived: (payload: Buffer, packetId: number) => void, onCommandAcknowledged: (packetId: number, trackingId: number) => void) {
+	constructor (options: { address: string, port: number, debug: boolean }, onDisconnect: () => void, onLog: (message: string) => void, onCommandReceived: (payload: Buffer, packetId: number) => void, onCommandAcknowledged: (packetId: number, trackingId: number) => void) {
+		this._debug = options.debug
+		this._address = options.address
+		this._port = options.port
+
 		this.onDisconnect = onDisconnect
 		this.onLog = onLog
 		this.onCommandReceived = onCommandReceived
@@ -54,7 +57,7 @@ export class AtemSocketChild {
 		this._socket = this._createSocket()
 	}
 
-	public connect (address?: string, port?: number): void {
+	public connect (address: string, port: number): void {
 		if (!this._reconnectTimer) {
 			this._reconnectTimer = setInterval(() => {
 				if (this._lastReceivedAt + CONNECTION_TIMEOUT > Date.now()) {
@@ -70,12 +73,8 @@ export class AtemSocketChild {
 			this._retransmitTimer = setInterval(() => this._checkForRetransmit(), 10)
 		}
 
-		if (address !== undefined) {
-			this._address = address
-		}
-		if (port !== undefined) {
-			this._port = port
-		}
+		this._address = address
+		this._port = port
 
 		this.restartConnection()
 	}
@@ -119,10 +118,8 @@ export class AtemSocketChild {
 		this.log('reconnect')
 
 		// Try doing reconnect
-		if (this._address && this._port) {
-			this._sendPacket(Util.COMMAND_CONNECT_HELLO)
-			this._connectionState = ConnectionState.SynSent
-		}
+		this._sendPacket(Util.COMMAND_CONNECT_HELLO)
+		this._connectionState = ConnectionState.SynSent
 	}
 
 	public log (message: string): void {

@@ -59,7 +59,7 @@ describe('SocketChild', () => {
 			}
 
 			expect(getState(child)).toEqual(ConnectionState.Closed)
-			child.connect(ADDRESS)
+			child.connect(ADDRESS, DEFAULT_PORT)
 
 			// Ensure everything has ticked through
 			clock.tick(20)

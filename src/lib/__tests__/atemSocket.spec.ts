@@ -76,13 +76,13 @@ describe('AtemSocket', () => {
 
 		expect(getChild(socket)).toBeTruthy()
 		// Connect was not called explicitly
-		expect(AtemSocketChildSingleton.connect).toHaveBeenCalledTimes(0)
+		expect(AtemSocketChildSingleton.connect).toHaveBeenCalledTimes(1)
 		expect(AtemSocketChildSingleton.disconnect).toHaveBeenCalledTimes(0)
 		expect(AtemSocketChildSingleton.sendCommand).toHaveBeenCalledTimes(0)
 
 		// New child was constructed
 		expect(AtemSocketChild).toHaveBeenCalledTimes(1)
-		expect(AtemSocketChild).toHaveBeenCalledWith({ address: '', port: 890 })
+		expect(AtemSocketChild).toHaveBeenCalledWith({ address: '', port: 890, debug: false })
 	})
 	test('connect initial with params', async () => {
 		const socket = createSocket()
@@ -95,13 +95,13 @@ describe('AtemSocket', () => {
 
 		expect(getChild(socket)).toBeTruthy()
 		// Connect was not called explicitly
-		expect(AtemSocketChildSingleton.connect).toHaveBeenCalledTimes(0)
+		expect(AtemSocketChildSingleton.connect).toHaveBeenCalledTimes(1)
 		expect(AtemSocketChildSingleton.disconnect).toHaveBeenCalledTimes(0)
 		expect(AtemSocketChildSingleton.sendCommand).toHaveBeenCalledTimes(0)
 
 		// New child was constructed
 		expect(AtemSocketChild).toHaveBeenCalledTimes(1)
-		expect(AtemSocketChild).toHaveBeenCalledWith({ address: 'abc', port: 765 })
+		expect(AtemSocketChild).toHaveBeenCalledWith({ address: 'abc', port: 765, debug: false })
 	})
 	test('connect change details', async () => {
 		const socket = createSocket()
@@ -116,7 +116,7 @@ describe('AtemSocket', () => {
 
 		// Connect was not called explicitly
 		expect(AtemSocketChild).toHaveBeenCalledTimes(1)
-		expect(AtemSocketChildSingleton.connect).toHaveBeenCalledTimes(0)
+		expect(AtemSocketChildSingleton.connect).toHaveBeenCalledTimes(1)
 		expect(AtemSocketChildSingleton.disconnect).toHaveBeenCalledTimes(0)
 		expect(AtemSocketChildSingleton.sendCommand).toHaveBeenCalledTimes(0)
 
