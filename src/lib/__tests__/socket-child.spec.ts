@@ -4,6 +4,7 @@ import { AtemSocketChild } from '../atemSocketChild'
 import { Util } from '../..'
 import * as lolex from 'lolex'
 import { ConnectionState, PacketFlag, IPCMessageType } from '../../enums'
+import { DEFAULT_PORT } from '../../atem'
 
 const ADDRESS = '127.0.0.1'
 
@@ -12,7 +13,7 @@ function getSocket (child: AtemSocketChild) {
 	expect(socket).toBeTruthy()
 	expect(socket.isOpen).toBeTruthy()
 	socket.expectedAddress = ADDRESS
-	socket.expectedPort = 9910
+	socket.expectedPort = DEFAULT_PORT
 
 	return socket
 }
