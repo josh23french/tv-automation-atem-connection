@@ -96,21 +96,28 @@ export class AtemSocket extends EventEmitter {
 	}
 
 	private async _createSocketProcess () {
-		const socketProcess = await threadedClass<AtemSocketChild>('../../dist/lib/atemSocketChild.js', AtemSocketChild, [{
-			address: this._address,
-			port: this._port,
-			debug: this._debug
-		}], {
+		const socketProcess = await threadedClass<AtemSocketChild>('../../dist/lib/atemSocketChild.js', AtemSocketChild, [
+			{
+				address: this._address,
+				port: this._port,
+				debug: this._debug
+			},
+			() => this.emit(IPCMessageType.Disconnect), // onDisconnect
+			(message: string) => this.log(message), // onLog
+			(payload: Buffer) => this._parseCommand(Buffer.from(payload)), // onCommandReceived
+			(packetId: number, trackingId: number) => this.emit(IPCMessageType.CommandAcknowledged, { packetId, trackingId }) // onCommandAcknowledged
+		], {
 			instanceName: 'atem-connection',
 			freezeLimit: 200,
 			autoRestart: true,
 			disableMultithreading: this._disableMultithreaded
 		})
-		// await socketProcess.on(IPCMessageType.Disconnect, () => this.emit(IPCMessageType.Disconnect))
-		// await socketProcess.on(IPCMessageType.Log, (payload: string) => this.log(payload))
-		// await socketProcess.on(IPCMessageType.CommandAcknowledged, (packetId: number, trackingId: number) => this.emit(IPCMessageType.CommandAcknowledged, { packetId, trackingId }))
-		// await socketProcess.on(IPCMessageType.CommandTimeout, (packetId: number, trackingId: number) => this.emit(IPCMessageType.CommandTimeout, { packetId, trackingId }))
-		// await socketProcess.on(IPCMessageType.InboundCommand, (payload: Buffer) => this._parseCommand(Buffer.from(payload)))
+		await socketProcess.hackSetFuncs(
+			() => this.emit(IPCMessageType.Disconnect), // onDisconnect
+			(message: string) => this.log(message), // onLog
+			(payload: Buffer) => this._parseCommand(Buffer.from(payload)), // onCommandReceived
+			(packetId: number, trackingId: number) => this.emit(IPCMessageType.CommandAcknowledged, { packetId, trackingId }) // onCommandAcknowledged
+		)
 
 		ThreadedClassManager.onEvent(socketProcess, 'restarted', () => {
 			this.emit('restarted')

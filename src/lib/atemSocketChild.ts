@@ -39,10 +39,10 @@ export class AtemSocketChild {
 	private _ackTimerRunning = false
 	private _receivedWithoutAck: number = 0
 
-	private readonly onDisconnect: () => void
-	private readonly onLog: (message: string) => void
-	private readonly onCommandReceived: (payload: Buffer, packetId: number) => void
-	private readonly onCommandAcknowledged: (packetId: number, trackingId: number) => void
+	private onDisconnect: () => void
+	private onLog: (message: string) => void
+	private onCommandReceived: (payload: Buffer, packetId: number) => void
+	private onCommandAcknowledged: (packetId: number, trackingId: number) => void
 
 	constructor (options: { address: string, port: number, debug: boolean }, onDisconnect: () => void, onLog: (message: string) => void, onCommandReceived: (payload: Buffer, packetId: number) => void, onCommandAcknowledged: (packetId: number, trackingId: number) => void) {
 		this._debug = options.debug
@@ -57,9 +57,16 @@ export class AtemSocketChild {
 		this._socket = this._createSocket()
 	}
 
+	public hackSetFuncs (onDisconnect: () => void, onLog: (message: string) => void, onCommandReceived: (payload: Buffer, packetId: number) => void, onCommandAcknowledged: (packetId: number, trackingId: number) => void) {
+		this.onDisconnect = onDisconnect
+		this.onLog = onLog
+		this.onCommandReceived = onCommandReceived
+		this.onCommandAcknowledged = onCommandAcknowledged
+	}
+
 	public connect (address: string, port: number): void {
 		if (!this._reconnectTimer) {
-			this._reconnectTimer = setInterval(() => {
+			this._reconnectTimer = setInterval(async () => {
 				if (this._lastReceivedAt + CONNECTION_TIMEOUT > Date.now()) {
 					// We heard from the atem recently
 					return
@@ -192,6 +199,8 @@ export class AtemSocketChild {
 			return
 		}
 
+		const ps: Array<Promise<void>> = []
+
 		if (this._connectionState === ConnectionState.Established) {
 			// Device asked for retransmit
 			if (flags & PacketFlag.RetransmitRequest) {
@@ -233,6 +242,8 @@ export class AtemSocketChild {
 				// this.log(`${Date.now()} Got ack ${ackPacketId} Remaining=${this._inFlight.length}`)
 			}
 		}
+
+		return Promise.all(ps)
 	}
 
 	private _sendPacket (packet: Buffer) {
