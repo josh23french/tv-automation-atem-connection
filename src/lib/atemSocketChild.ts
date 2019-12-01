@@ -1,6 +1,5 @@
-import { createSocket, Socket } from 'dgram'
+import { createSocket, Socket, RemoteInfo } from 'dgram'
 import { EventEmitter } from 'events'
-import { format } from 'util'
 import { Util } from './atemUtil'
 import { ConnectionState, IPCMessageType, PacketFlag } from '../enums'
 import * as NanoTimer from 'nanotimer'
@@ -9,6 +8,15 @@ const IN_FLIGHT_TIMEOUT = 30 // ms
 const RECONNECT_INTERVAL = 5000 // ms
 const MAX_PACKET_RETRIES = 5
 const MAX_PACKET_ID = (1 << 15) - 1 // Atem expects 15 not 16 bits before wrapping
+const MAX_PACKET_PER_ACK = 16
+
+interface InFlightPacket {
+	readonly packetId: number
+	readonly trackingId: number
+	readonly payload: Buffer
+	lastSent: number
+	resent: number
+}
 
 export class AtemSocketChild extends EventEmitter {
 	private readonly _debug = false
@@ -17,7 +25,7 @@ export class AtemSocketChild extends EventEmitter {
 	private _reconnectTimer: NodeJS.Timer | undefined
 	private _retransmitTimer: NodeJS.Timer | undefined
 
-	private _localPacketId = 1
+	private _nextSendPacketId = 1
 	private _sessionId: number = 0
 
 	private _address: string
@@ -25,12 +33,24 @@ export class AtemSocketChild extends EventEmitter {
 	private _socket: Socket
 
 	private _lastReceivedAt: number = Date.now()
-	private _lastReceivedPacketId = 0
-	private _inFlight: Array<{packetId: number, trackingId: number, lastSent: number, packet: Buffer, resent: number}> = []
-	private _ackTimer = new NanoTimer()
-	private _hasTimeout = false
-	private _receivedWithoutAck = 0
+	private _lastReceivedPacketId: number = 0
+	private readonly _inFlight: InFlightPacket[] = []
+	private readonly _ackTimer = new NanoTimer()
+	private _ackTimerRunning = false
+	private _receivedWithoutAck: number = 0
 	private _lastAcked = 0
+
+	public on!: ((event: IPCMessageType.Disconnect, listener: () => void) => this) &
+		((event: IPCMessageType.Log, listener: (payload: string) => void) => this) &
+		((event: IPCMessageType.InboundCommand, listener: (payload: Buffer, packetId: number) => void) => this) &
+		((event: IPCMessageType.CommandAcknowledged, listener: (packetId: number, trackingId: number) => void) => this) &
+		((event: IPCMessageType.CommandTimeout, listener: (packetId: number, trackingId: number) => void) => this)
+
+	public emit!: ((event: IPCMessageType.Disconnect) => boolean) &
+		  ((event: IPCMessageType.Log, payload: string) => boolean) &
+		  ((event: IPCMessageType.InboundCommand, payload: Buffer, packetId: number) => boolean) &
+		  ((event: IPCMessageType.CommandAcknowledged, packetId: number, trackingId: number) => boolean) &
+		  ((event: IPCMessageType.CommandTimeout, packetId: number, trackingId: number) => boolean)
 
 	constructor (options: { address?: string, port?: number } = {}) {
 		super()
@@ -45,9 +65,9 @@ export class AtemSocketChild extends EventEmitter {
 				if (this._lastReceivedAt + RECONNECT_INTERVAL > Date.now()) return
 				if (this._connectionState === ConnectionState.Established) {
 					this._connectionState = ConnectionState.Closed
-					this.emit(IPCMessageType.Disconnect, null, null)
+					this.emit(IPCMessageType.Disconnect)
 				}
-				this._localPacketId = 1
+				this._nextSendPacketId = 1
 				this._sessionId = 0
 				this.log('reconnect')
 				if (this._address && this._port) {
@@ -84,11 +104,9 @@ export class AtemSocketChild extends EventEmitter {
 		}
 
 		return new Promise((resolve) => {
-			if (this._connectionState === ConnectionState.Established) {
-				this._socket.close(() => {
-					resolve()
-				})
-			} else {
+			try {
+				this._socket.close(() => resolve())
+			} catch (e) {
 				resolve()
 			}
 		}).then(() => {
@@ -98,34 +116,32 @@ export class AtemSocketChild extends EventEmitter {
 		})
 	}
 
-	public log (fmt: string, ...args: any[]): void {
-		const payload = format(fmt, ...args)
+	public log (payload: string): void {
 		this.emit(IPCMessageType.Log, payload)
 	}
 
-	get nextPacketId (): number {
-		return this._localPacketId
-	}
+	public sendCommand (payload: Buffer, trackingId: number): void {
+		const packetId = this._nextSendPacketId++
+		if (this._nextSendPacketId > MAX_PACKET_ID) this._nextSendPacketId = 0
 
-	public _sendCommand (serializedCommand: Buffer, trackingId: number): void {
-		const payload = serializedCommand
-		if (this._debug) this.log('PAYLOAD', payload)
+		const opcode = PacketFlag.AckRequest << 11
+
+		if (this._debug) this.log(`SEND ${payload}`)
 		const buffer = Buffer.alloc(12 + payload.length, 0)
-		buffer.writeUInt16BE(0x0800 | payload.length + 12, 0) // Opcode & Length
+		buffer.writeUInt16BE(opcode | (payload.length + 12), 0) // Opcode & Length
 		buffer.writeUInt16BE(this._sessionId, 2)
-		buffer.writeUInt16BE(this._localPacketId, 10)
+		buffer.writeUInt16BE(packetId, 10)
 
 		payload.copy(buffer, 12)
 		this._sendPacket(buffer)
 
 		this._inFlight.push({
-			packetId: this._localPacketId,
+			packetId,
 			trackingId,
 			lastSent: Date.now(),
-			packet: buffer,
-			resent: 0 })
-		this._localPacketId++
-		if (MAX_PACKET_ID < this._localPacketId) this._localPacketId = 0
+			payload: buffer,
+			resent: 0
+		})
 	}
 
 	private _createSocket () {
@@ -136,8 +152,8 @@ export class AtemSocketChild extends EventEmitter {
 		return this._socket
 	}
 
-	private _receivePacket (packet: Buffer, rinfo: any) {
-		if (this._debug) this.log('RECV ', packet)
+	private _receivePacket (packet: Buffer, rinfo: RemoteInfo) {
+		if (this._debug) this.log(`RECV ${packet}`)
 		this._lastReceivedAt = Date.now()
 		const length = packet.readUInt16BE(0) & 0x07ff
 		if (length !== rinfo.size) return
@@ -147,90 +163,89 @@ export class AtemSocketChild extends EventEmitter {
 		const remotePacketId = packet.readUInt16BE(10)
 
 		// Send hello answer packet when receive connect flags
-		if ((flags & PacketFlag.Connect) && !(flags & PacketFlag.IsRetransmit)) {
-			this._sendPacket(Util.COMMAND_CONNECT_HELLO_ANSWER)
-		}
-
-		// Device asked for retransmit
-		if (flags & PacketFlag.RetransmitRequest) {
-			const fromPacketId = packet.readUInt16BE(6)
-			this.log('Retransmit request: ', fromPacketId)
-
-			// TODO
-		}
-
-		// Parse commands, Emit 'stateChanged' event after parse
-		if (flags & PacketFlag.AckRequest) {
-			if (this._connectionState === ConnectionState.Established) {
-				if (remotePacketId === (this._lastReceivedPacketId + 1) % MAX_PACKET_ID) {
-					this._attemptAck(remotePacketId)
-					this._lastReceivedPacketId = remotePacketId
-				} else {
-					return
-				}
-			}
-			if (length > 12) {
-				this.emit(IPCMessageType.InboundCommand, packet.slice(12), remotePacketId)
-			}
-		}
-
-		// Send ping packet, Emit 'connect' event after receive all stats
-		if (flags & PacketFlag.AckRequest && length === 12 && this._connectionState === ConnectionState.SynSent) {
+		if (flags & PacketFlag.Connect) {
 			this._connectionState = ConnectionState.Established
 			this._sendAck(remotePacketId)
 			this._lastReceivedPacketId = remotePacketId
+			return
 		}
 
-		// Device ack'ed our command
-		if (flags & PacketFlag.AckReply && this._connectionState === ConnectionState.Established) {
-			const ackPacketId = packet.readUInt16BE(4)
-			this._lastAcked = ackPacketId
-			for (const i in this._inFlight) {
-				if (ackPacketId >= this._inFlight[i].packetId || this._localPacketId < this._inFlight[i].packetId) {
-					this.emit(IPCMessageType.CommandAcknowledged, this._inFlight[i].packetId, this._inFlight[i].trackingId)
-					this._inFlight.splice(Number(i), 1)
+		if (this._connectionState === ConnectionState.Established) {
+			// Device asked for retransmit
+			if (flags & PacketFlag.RetransmitRequest) {
+				const fromPacketId = packet.readUInt16BE(6)
+				this.log(`Retransmit request: ${fromPacketId}`)
+
+				// TODO
+			}
+
+			// Got a packet that needs an ack
+			if (flags & PacketFlag.AckRequest) {
+				// Check if it next in the sequence
+				if (remotePacketId === (this._lastReceivedPacketId + 1) % (MAX_PACKET_ID + 1)) { // TODO - tidy this
+					this._sendOrQueueAck(remotePacketId)
+					this._lastReceivedPacketId = remotePacketId
+
+					// It might have commands
+					if (length > 12) {
+						this.emit(IPCMessageType.InboundCommand, packet.slice(12), remotePacketId)
+					}
+				}
+			}
+
+			// Device ack'ed our packet
+			if (flags & PacketFlag.AckReply) {
+				const ackPacketId = packet.readUInt16BE(4)
+				this._lastAcked = ackPacketId
+				for (const i in this._inFlight) {
+					// TODO - this doesnt wrap well...
+					if (ackPacketId >= this._inFlight[i].packetId || this._nextSendPacketId < this._inFlight[i].packetId) {
+						this.emit(IPCMessageType.CommandAcknowledged, this._inFlight[i].packetId, this._inFlight[i].trackingId)
+						this._inFlight.splice(Number(i), 1)
+					}
 				}
 			}
 		}
 	}
 
 	private _sendPacket (packet: Buffer) {
-		if (this._debug) this.log('SEND ', packet)
+		if (this._debug) this.log(`SEND ${packet}`)
 		this._socket.send(packet, 0, packet.length, this._port, this._address)
 	}
 
-	private _attemptAck (packetId: number) {
+	private _sendOrQueueAck (packetId: number) {
 		this._lastReceivedPacketId = packetId
 		this._receivedWithoutAck++
-		if (this._receivedWithoutAck === 16) {
+		if (this._receivedWithoutAck >= MAX_PACKET_PER_ACK) {
 			this._receivedWithoutAck = 0
-			this._hasTimeout = false
+			this._ackTimerRunning = false
 			this._ackTimer.clearTimeout()
 			this._sendAck(this._lastReceivedPacketId)
-		} else if (!this._hasTimeout) {
-			this._hasTimeout = true
+		} else if (!this._ackTimerRunning) {
+			this._ackTimerRunning = true
 			// timeout for 5 ms (syntax for nanotimer says m)
 			this._ackTimer.setTimeout(() => {
 				this._receivedWithoutAck = 0
-				this._hasTimeout = false
+				this._ackTimerRunning = false
 				this._sendAck(this._lastReceivedPacketId)
 			}, [], '5m')
 		}
 	}
 
 	private _sendAck (packetId: number) {
-		const buffer = Buffer.alloc(12, 0)
-		buffer.writeUInt16BE(0x800C, 0) // Opcode & Length
+		const opcode = PacketFlag.AckReply << 11
+		const length = 12
+		const buffer = Buffer.alloc(length, 0)
+		buffer.writeUInt16BE(opcode | length, 0)
 		buffer.writeUInt16BE(this._sessionId, 2)
 		buffer.writeUInt16BE(packetId, 4)
-		buffer.writeUInt8(0x41, 9)
 		this._sendPacket(buffer)
 	}
 
 	private _checkForRetransmit () {
 		let retransmitFromPacketId: number | undefined
 		for (const sentPacket of this._inFlight) {
-			if (sentPacket.packetId <= this._lastAcked || sentPacket.packetId > this._localPacketId) {
+			if (sentPacket.packetId <= this._lastAcked || sentPacket.packetId > this._nextSendPacketId) {
 				this.emit(IPCMessageType.CommandAcknowledged, sentPacket.packetId, sentPacket.trackingId)
 				this._inFlight.splice(this._inFlight.indexOf(sentPacket), 1)
 				continue
@@ -238,25 +253,25 @@ export class AtemSocketChild extends EventEmitter {
 			if (retransmitFromPacketId && sentPacket.packetId > retransmitFromPacketId) {
 				sentPacket.lastSent = Date.now()
 				sentPacket.resent++
-				this._sendPacket(sentPacket.packet)
+				this._sendPacket(sentPacket.payload)
 			} else if (sentPacket && sentPacket.lastSent + IN_FLIGHT_TIMEOUT < Date.now()) {
-				if (sentPacket.resent <= MAX_PACKET_RETRIES && sentPacket.packetId < this.nextPacketId) {
+				if (sentPacket.resent <= MAX_PACKET_RETRIES && sentPacket.packetId < this._nextSendPacketId) {
 					sentPacket.lastSent = Date.now()
 					sentPacket.resent++
 
-					this.log('Resending', sentPacket.packetId)
+					this.log(`Resending ${sentPacket.packetId}`)
 					if (this._debug) {
-						this.log('RESEND: ', sentPacket)
+						this.log(`RESEND: ${sentPacket}`)
 					}
-					this._sendPacket(sentPacket.packet)
+					this._sendPacket(sentPacket.payload)
 					retransmitFromPacketId = sentPacket.packetId
 				} else {
 					this.emit(IPCMessageType.CommandTimeout, sentPacket.packetId, sentPacket.trackingId)
 					this._inFlight.splice(this._inFlight.indexOf(sentPacket), 1)
 
-					this.log('Timed out: ', sentPacket.packetId)
+					this.log(`Timed out: ${sentPacket.packetId}`)
 					if (this._debug) {
-						this.log('TIMED OUT: ', sentPacket.packet)
+						this.log(`TIMED OUT: ${sentPacket}`)
 					}
 					// @todo: we should probably break up the connection here.
 				}
