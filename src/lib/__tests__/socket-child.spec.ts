@@ -484,7 +484,6 @@ describe('SocketChild', () => {
 			expect(getInflightIds(child)).toEqual([32764, 32765, 32766, 32767, 0, 1])
 			expect(acked).toEqual([])
 
-			// TODO - and the remainder of this is very very broken..
 			// Ack a couple
 			socket.emitMessage(genAckCommandMessage(32766))
 			expect(getInflightIds(child)).toEqual([32767, 0, 1])
