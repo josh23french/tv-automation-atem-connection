@@ -66,7 +66,7 @@ export class AtemSocketChild {
 
 	public connect (address: string, port: number): void {
 		if (!this._reconnectTimer) {
-			this._reconnectTimer = setInterval(async () => {
+			this._reconnectTimer = setInterval(() => {
 				if (this._lastReceivedAt + CONNECTION_TIMEOUT > Date.now()) {
 					// We heard from the atem recently
 					return
@@ -199,8 +199,6 @@ export class AtemSocketChild {
 			return
 		}
 
-		const ps: Array<Promise<void>> = []
-
 		if (this._connectionState === ConnectionState.Established) {
 			// Device asked for retransmit
 			if (flags & PacketFlag.RetransmitRequest) {
@@ -242,8 +240,6 @@ export class AtemSocketChild {
 				// this.log(`${Date.now()} Got ack ${ackPacketId} Remaining=${this._inFlight.length}`)
 			}
 		}
-
-		return Promise.all(ps)
 	}
 
 	private _sendPacket (packet: Buffer) {

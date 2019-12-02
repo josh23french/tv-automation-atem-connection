@@ -102,10 +102,14 @@ export class AtemSocket extends EventEmitter {
 				port: this._port,
 				debug: this._debug
 			},
-			() => this.emit(IPCMessageType.Disconnect), // onDisconnect
-			(message: string) => this.log(message), // onLog
-			(payload: Buffer) => this._parseCommand(Buffer.from(payload)), // onCommandReceived
-			(packetId: number, trackingId: number) => this.emit(IPCMessageType.CommandAcknowledged, { packetId, trackingId }) // onCommandAcknowledged
+			null,
+			null,
+			null,
+			null
+			// () => this.emit(IPCMessageType.Disconnect), // onDisconnect
+			// (message: string) => this.log(message), // onLog
+			// (payload: Buffer) => this._parseCommand(Buffer.from(payload)), // onCommandReceived
+			// (packetId: number, trackingId: number) => this.emit(IPCMessageType.CommandAcknowledged, { packetId, trackingId }) // onCommandAcknowledged
 		], {
 			instanceName: 'atem-connection',
 			freezeLimit: 200,
