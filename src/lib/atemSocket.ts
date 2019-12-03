@@ -138,10 +138,18 @@ export class AtemSocket extends EventEmitter {
 	}
 
 	private _parseCommand (buffer: Buffer) {
-		// TODO - this will get stuck on invalid input (length of 0)
-		// Any will throw errors if less than 8 long
+		if (buffer.length < 8) {
+			// Commands are never less than 8, as that is the header
+			return
+		}
+
 		const length = buffer.readUInt16BE(0)
 		const name = buffer.toString('ascii', 4, 8)
+
+		if (length < 8) {
+			// Commands are never less than 8, as that is the header
+			return
+		}
 
 		if (name === 'InCm') {
 			this.emit('connect')

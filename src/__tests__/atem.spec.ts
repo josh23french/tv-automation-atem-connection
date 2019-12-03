@@ -123,57 +123,11 @@ describe('Atem', () => {
 			expect(socket.sendCommand).toHaveBeenCalledWith(cmd, 124)
 
 			// Trigger the ack, and it should switfy resolve
-			socket.emit(IPCMessageType.CommandAcknowledged, { trackingId: 124 })
+			socket.emit(IPCMessageType.CommandAcknowledged, 124)
 			expect(Object.keys(sentQueue)).toHaveLength(0)
 
 			// Finally, it should now resolve without a timeout
-			expect(await res).toEqual(cmd)
-		} finally {
-			cleanupAtem(conn)
-		}
-	}, 500)
-
-	test('sendCommand - timeout', async () => {
-		(AtemSocket as any).mockImplementation(() => new EventEmitter())
-		const conn = new Atem({ debug: true, address: 'test1', port: 23 })
-
-		try {
-			const socket = (conn as any).socket as AtemSocket
-			expect(socket).toBeTruthy()
-
-			let nextId = 123
-			Object.defineProperty(socket, 'nextCommandTrackingId', {
-				get: jest.fn(() => nextId++),
-				set: jest.fn()
-			})
-			expect(socket.nextCommandTrackingId).toEqual(123)
-
-			socket.sendCommand = jest.fn(() => Promise.resolve(35) as any)
-
-			const sentQueue = (conn as any)._sentQueue as object
-			expect(Object.keys(sentQueue)).toHaveLength(0)
-
-			const cmd = new CutCommand(0)
-			const res = conn.sendCommand(cmd)
-			await setImmediatePromise()
-			expect(Object.keys(sentQueue)).toHaveLength(1)
-
-			expect(socket.sendCommand).toHaveBeenCalledTimes(1)
-			expect(socket.sendCommand).toHaveBeenCalledWith(cmd, 124)
-
-			// Trigger the timeout, and it should switfy resolve
-			socket.emit(IPCMessageType.CommandTimeout, { trackingId: 124 })
-			expect(Object.keys(sentQueue)).toHaveLength(0)
-
-			// Finally, it should now resolve without a timeout
-			try {
-				await res
-				// Should not get here
-				expect(false).toBeTruthy()
-			} catch (e) {
-				expect(e).toEqual(cmd)
-			}
-			// expect(await res).toEqual(cmd)
+			expect(await res).toBeUndefined()
 		} finally {
 			cleanupAtem(conn)
 		}
