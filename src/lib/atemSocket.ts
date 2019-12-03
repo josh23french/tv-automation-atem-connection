@@ -96,7 +96,7 @@ export class AtemSocket extends EventEmitter {
 	}
 
 	private async _createSocketProcess () {
-		const socketProcess = await threadedClass<AtemSocketChild>('../../dist/lib/atemSocketChild.js', AtemSocketChild, [
+		const socketProcess = await threadedClass<AtemSocketChild>('./atemSocketChild', AtemSocketChild, [
 			{
 				address: this._address,
 				port: this._port,
