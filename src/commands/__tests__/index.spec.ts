@@ -259,10 +259,6 @@ const commandConverters: CommandTestConverterSet = {
 			'videoSources': (val: any) => ({ val, name: 'sources' }),
 			'superSource': (val: any) => ({ val, name: 'superSources' }),
 			'talkbackOverSDI': () => ({ val: 0 }) // @todo: should be fixed in atem-connection
-		},
-		customMutate: (obj: any) => {
-			obj.hasSuperSources = obj.superSources !== 0
-			return obj
 		}
 	},
 	'FTCD': {

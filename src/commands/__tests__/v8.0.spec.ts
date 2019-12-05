@@ -30,7 +30,8 @@ const commandConverters: CommandTestConverterSet = {
 			'hyperDecks': (val: any) => ({ val, name: 'maxHyperdecks' }),
 			'mixEffectBlocks': (val: any) => ({ val, name: 'MEs' }),
 			'serialPort': (val: any) => ({ val, name: 'serialPorts' }),
-			'videoSources': (val: any) => ({ val, name: 'sources' })
+			'videoSources': (val: any) => ({ val, name: 'sources' }),
+			'superSource': (val: any) => ({ val, name: 'superSources' })
 		}
 	},
 	'SSrc': {
@@ -129,8 +130,9 @@ describe('Commands v8.0', () => {
 
 		switch (testCase.name) {
 			// Not parsed
-			case '_MvC':
-				return
+			case '_MvC': // Not parsed
+			case 'AMIP': // portType max value
+				continue
 		}
 
 		runTestForCommand(commandParser, commandConverters, i, testCase)
