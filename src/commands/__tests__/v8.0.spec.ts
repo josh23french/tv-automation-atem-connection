@@ -10,7 +10,7 @@ const commandConverters: CommandTestConverterSet = {
 			'index': 'index'
 		},
 		propertyAliases: {
-			'balance': (v: number) => ({ val: Math.round(v * 10) / 10 }),
+			'balance': (v: number) => ({ val: Math.round(v) }),
 			'gain': (v: number) => ({ val: Math.round(v * 100) / 100 })
 		}
 	},
